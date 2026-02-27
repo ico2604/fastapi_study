@@ -1,12 +1,33 @@
-﻿from fastapi import FastAPI, Path, Query, status, HTTPException, Depends
+﻿import anyio
+from fastapi import (
+    FastAPI,
+    Path,
+    Query,
+    status,
+    HTTPException,
+    Depends,
+    BackgroundTasks,
+)
 from typing import Optional
 from schema import UserSignUpRequest, UserResponse, UserUpdateRequest
 from db_connection import SessionFactory, getSession
 from db_models import User
 from sqlalchemy import select
+from sendEmail import send_email
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(_):
+    # 서버 실행될 때, 실행되는 부분
+    limiter = anyio.to_thread.current_default_thread_limiter()
+    limiter.total_tokens = 200 # 스레드 풀 개수를 200개로 증량
+    yield
+    # 서버 종료될 때, 실행되는 부분
+
+# lifespan -> FastAPI 서버가 실행되고 종료될 때, 특정 리소스를 생성하고 정리하는 기능
+app = FastAPI(lifespan=lifespan)
 
 
-app = FastAPI()
 
 users: list[dict] = [
     {"id": 1, "name": "Alice", "age": 30, "email": "alice@example.com"},
@@ -24,9 +45,26 @@ def get_users_handlers(session=Depends(getSession)):
     return users
 
 
-# @app.get("/users/{user_id}")
-# def get_user_handler(user_id: int):
-#     return users[user_id - 1]
+# 회원가입 API
+@app.post(
+    "/users/signup",
+    status_code=status.HTTP_201_CREATED,
+    response_model=UserResponse,
+)
+def signup_user_handler(
+    body: UserSignUpRequest,
+    background_tasks: BackgroundTasks,
+    session=Depends(getSession),
+):
+    new_user = User(name=body.name, age=body.age, email=body.email)
+
+    # DB 작업 단위
+    session.add(new_user)  # 임시 저장
+    session.commit()  # DB에 저장
+
+    # 이메일 전송 작업 BT 등록
+    background_tasks.add_task(send_email, body.name)
+    return new_user
 
 
 # 회원 검색 API
@@ -108,30 +146,6 @@ def delete_user_handler(
     session.delete(user)
     session.commit()
     return None
-
-
-# 회원가입 API
-@app.post(
-    "/users/signup",
-    status_code=status.HTTP_201_CREATED,
-    response_model=UserResponse,
-)
-def signup_user_handler(body: UserSignUpRequest, session=Depends(getSession)):
-    # new_user = {
-    #     "id": len(users) + 1,
-    #     "name": body.name,
-    #     "age": body.age,
-    #     "email": body.email,
-    #     "grade": "S",
-    # }
-    # users.append(new_user)
-    # SQLAlchemy ORM을 통해 새로운 user 인스턴스 생성
-    new_user = User(name=body.name, age=body.age, email=body.email)
-
-    # DB 작업 단위
-    session.add(new_user)  # 임시 저장
-    session.commit()  # DB에 저장
-    return new_user
 
 
 # GET / items /{item_name}
