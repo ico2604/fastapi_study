@@ -46,12 +46,12 @@ def search_users_handler(name: str):
     "/users/{user_id}", status_code=status.HTTP_200_OK, response_model=UserResponse
 )
 def get_user_handler(
-    user_id: int = Path(..., ge=1, description="사용자 ID는 1 이상이어야 합니다.")
+    user_id: int = Path(..., ge=1, description="사용자 ID는 1 이상이어야 합니다."),
+    session=Depends(getSession),
 ):
-    with SessionFactory() as session:
-        stmt = select(User).where(User.id == user_id)
-        result = session.execute(stmt)
-        user = result.scalar()
+    stmt = select(User).where(User.id == user_id)
+    result = session.execute(stmt)
+    user = result.scalar()
 
     if user is None:
         raise HTTPException(
@@ -65,26 +65,26 @@ def get_user_handler(
 def update_user_handler(
     body: UserUpdateRequest,
     user_id: int = Path(..., ge=1, description="사용자 ID는 1 이상이어야 합니다."),
+    session=Depends(getSession),
 ):
     if body.name is None and body.age is None:
         raise HTTPException(status_code=400, detail="업데이트할 정보가 없습니다.")
 
-    with SessionFactory() as session:
-        stmt = select(User).where(User.id == user_id)
-        result = session.execute(stmt)
-        user = result.scalar()
+    stmt = select(User).where(User.id == user_id)
+    result = session.execute(stmt)
+    user = result.scalar()
 
-        if user is None:
-            raise HTTPException(
-                status.HTTP_404_NOT_FOUND, detail="존재하지 않는 사용자 ID입니다."
-            )
+    if user is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, detail="존재하지 않는 사용자 ID입니다."
+        )
 
-        # 2) 사용자 정보 업데이트
-        if body.name is not None:
-            user.name = body.name
-        if body.age is not None:
-            user.age = body.age
-        session.commit()
+    # 2) 사용자 정보 업데이트
+    if body.name is not None:
+        user.name = body.name
+    if body.age is not None:
+        user.age = body.age
+    session.commit()
 
     # 3) 업데이트된 사용자 정보 반환
     return user
@@ -93,20 +93,20 @@ def update_user_handler(
 # 사용자 삭제(회원탈퇴) API
 @app.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_user_handler(
-    user_id: int = Path(..., ge=1, description="사용자 ID는 1 이상이어야 합니다.")
+    user_id: int = Path(..., ge=1, description="사용자 ID는 1 이상이어야 합니다."),
+    session=Depends(getSession),
 ):
-    with SessionFactory() as session:
-        stmt = select(User).where(User.id == user_id)
-        result = session.execute(stmt)
-        user = result.scalar()
+    stmt = select(User).where(User.id == user_id)
+    result = session.execute(stmt)
+    user = result.scalar()
 
-        if user is None:
-            raise HTTPException(
-                status.HTTP_404_NOT_FOUND, detail="존재하지 않는 사용자 ID입니다."
-            )
+    if user is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, detail="존재하지 않는 사용자 ID입니다."
+        )
 
-        session.delete(user)
-        session.commit()
+    session.delete(user)
+    session.commit()
     return None
 
 
@@ -116,7 +116,7 @@ def delete_user_handler(
     status_code=status.HTTP_201_CREATED,
     response_model=UserResponse,
 )
-def signup_user_handler(body: UserSignUpRequest):
+def signup_user_handler(body: UserSignUpRequest, session=Depends(getSession)):
     # new_user = {
     #     "id": len(users) + 1,
     #     "name": body.name,
@@ -129,9 +129,8 @@ def signup_user_handler(body: UserSignUpRequest):
     new_user = User(name=body.name, age=body.age, email=body.email)
 
     # DB 작업 단위
-    with SessionFactory() as session:
-        session.add(new_user)  # 임시 저장
-        session.commit()  # DB에 저장
+    session.add(new_user)  # 임시 저장
+    session.commit()  # DB에 저장
     return new_user
 
 
