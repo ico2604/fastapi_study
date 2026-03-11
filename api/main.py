@@ -11,6 +11,7 @@ from fastapi import (
     Depends,
     BackgroundTasks,
 )
+from fastapi.responses import StreamingResponse
 from typing import Optional
 from schema import UserSignUpRequest, UserResponse, UserUpdateRequest
 
@@ -53,12 +54,26 @@ async def chat_handler(question: str = Body(..., embed=True)):  # 1. embed 오�
     # 3. 답변 생성 작접 enqueue
     await redis_client.lpush("inference_queue", json.dumps(job))
 
-    async for message in pubsub.listen():
-        if message["type"] == "message":
-            result = message["data"]
-            break
+    # 4. 답변 생성 결과를 돌려받기
+    async def event_generator():
+        try:
+            async for message in pubsub.listen():
+                if message["type"] == "message":
+                    data = message["data"]
+                    if data == "[DONE]":
+                        break
+                    # 클라이언트에게 전송 (SSE 포맷에 맞게 "data: 내용\n\n"으로 보내는 것이 정석이나
+                    # 단순 yield 시 StreamingResponse가 처리함)
+                    yield data
+        finally:
+            # 연결이 끊기거나 완료되면 구독 해제
+            await pubsub.unsubscribe(channel)
+            await pubsub.close()
 
-    return {"result": result}
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+    )
 
 
 @app.get("/users", status_code=status.HTTP_200_OK, response_model=list[UserResponse])

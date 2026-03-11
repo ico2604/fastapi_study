@@ -38,26 +38,30 @@ def run():
     print("Worker is running...")
     while True:
         try:
-            # 1. Queue에서 Job을 deque
             result = redis_client.brpop("inference_queue", timeout=0)
             if result:
                 _, job_data = result
                 job = json.loads(job_data)
 
-                # 2. 추론 로직 수행
-                question = job.get("question")
                 job_id = job.get("id")
-                print(f"[{job_id}] 처리 중: {question}")
-                answer = create_response(question=question)
-                print(f"{answer}")
+                question = job.get("question")
+                print(f"[{job_id}] 처리 중...")
 
-                # 3. API 서버로 반환
-                channel = f"result:{job["id"]}"
-                redis_client.publish(channel, answer)
+                channel = f"result:{job_id}"
+
+                # create_response가 generator를 반환함
+                stream_generator = create_response(question=question)
+
+                for chunk in stream_generator:
+                    # llama-cpp-python의 스트리밍 구조에 맞게 추출
+                    if "choices" in chunk and len(chunk["choices"]) > 0:
+                        token = chunk["choices"][0]["delta"].get("content")
+                        if token:
+                            redis_client.publish(channel, token)
+
+                # 모든 토큰 전송 후 종료 신호
+                redis_client.publish(channel, "[DONE]")
+                print(f"[{job_id}] 처리 완료")
 
         except Exception as e:
             print(f"Error occurred: {e}")
-
-
-if __name__ == "__main__":
-    run()
